@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<title>Sign in · تسجيل الدخول</title>
+<style>
+  body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; background: #0b1220; color: #e2e8f0; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+  .card { background: #101b30; border: 1px solid rgba(148,163,184,0.16); border-radius: 16px; padding: 28px 32px; text-align: center; max-width: 360px; width: calc(100% - 48px); }
+  .spin { width: 26px; height: 26px; border: 3px solid #334155; border-top-color: #38bdf8; border-radius: 50%; animation: r 0.9s linear infinite; margin: 0 auto 14px; }
+  @keyframes r { to { transform: rotate(360deg); } }
+  p { font-size: 13px; margin: 6px 0; color: #94a3b8; }
+  button { margin-top: 14px; width: 100%; padding: 13px 18px; border: 0; border-radius: 10px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+  button:active { transform: scale(0.99); }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="spin"></div>
+  <p id="en">Preparing Google sign-in…</p>
+  <p id="ar" dir="rtl">جارٍ تجهيز تسجيل الدخول بجوجل…</p>
+</div>
+<script type="module">
+  // [M-24] Gesture-driven authorized-domain auth bridge.
+  // NO automatic redirects — every Google interaction starts from a visible
+  // button tap (browsers always allow popups/redirects from a user gesture),
+  // so this page can never loop or get stuck.
+  import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+  import {
+    getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+  } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js';
+
+  const ALLOWED_RETURN_HOSTS = ['anesthesia-logbook.onrender.com', 'localhost', '127.0.0.1', 'altiqa.github.io', 'badr836.github.io'];
+  const DEFAULT_RETURN = 'https://altiqa.github.io/';
+
+  const params = new URLSearchParams(window.location.search);
+  const retParam = params.get('return') || '';
+  try { if (retParam) sessionStorage.setItem('al_return', retParam); } catch {}
+  let returnUrl = '';
+  try { returnUrl = sessionStorage.getItem('al_return') || ''; } catch {}
+
+  function setCard(html) { document.getElementById('card').innerHTML = html; }
+  function setStatus(en, ar) {
+    setCard('<div class="spin"></div><p id="en">' + en + '</p><p id="ar" dir="rtl">' + ar + '</p>');
+  }
+  function showButton(en, ar, onClick) {
+    setCard('<p id="en">' + en + '</p><p id="ar" dir="rtl">' + ar + '</p><button id="go"></button>');
+    const b = document.getElementById('go');
+    b.textContent = en + ' · ' + ar;
+    b.addEventListener('click', onClick);
+  }
+
+  function validTarget() {
+    try {
+      const u = new URL(returnUrl);
+      const ok = ALLOWED_RETURN_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith('.' + h));
+      return ok ? returnUrl : DEFAULT_RETURN;
+    } catch {
+      return DEFAULT_RETURN;
+    }
+  }
+  function goBack(hash) { window.location.replace(validTarget() + '#' + hash); }
+  function fail(msg) { goBack('al_err=' + encodeURIComponent(msg)); }
+
+  let auth = null, provider = null;
+  try {
+    const app = initializeApp({
+      apiKey: 'AIzaSyDFmEa9Sy1nbJKAsIH10aPPcYh_76wrJIw',
+      authDomain: 'earnest-mission-zxfhk.firebaseapp.com',
+      projectId: 'earnest-mission-zxfhk',
+      storageBucket: 'earnest-mission-zxfhk.firebasestorage.app',
+      messagingSenderId: '1093167474423',
+      appId: '1:1093167474423:web:f7a9f5baf342b882c3d5f2',
+    });
+    auth = getAuth(app);
+    provider = new GoogleAuthProvider();
+  } catch (e) {
+    fail('Bridge init failed: ' + String((e && e.message) || e));
+  }
+
+  function extractCred(result) {
+    const c = (result && result.credential) || null;
+    return { idToken: (c && c.idToken) || '', accessToken: (c && c.accessToken) || '' };
+  }
+
+  async function handBack(idToken, accessToken) {
+    goBack('al_cred=' + encodeURIComponent(idToken) +
+      (accessToken ? '&al_at=' + encodeURIComponent(accessToken) : ''));
+  }
+
+  // A user-gesture popup: the reliable way to obtain the Google OAuth token.
+  async function tapSignIn() {
+    setStatus('Opening Google…', 'جارٍ فتح جوجل…');
+    try {
+      const r = await signInWithPopup(auth, provider);
+      const c = extractCred(r);
+      if (c.idToken) { await handBack(c.idToken, c.accessToken); return; }
+    } catch (e) { /* popup blocked → full redirect from the same gesture */ }
+    try {
+      await signInWithRedirect(auth, provider);
+    } catch (e) {
+      fail('Sign-in failed: ' + String((e && e.message) || e));
+    }
+  }
+
+  async function main() {
+    if (!auth || !provider) return;
+    const redirected = await getRedirectResult(auth).catch(() => null);
+    const cred = extractCred(redirected);
+    if (cred.idToken) { await handBack(cred.idToken, cred.accessToken); return; }
+    if (redirected && redirected.user) {
+      // Session exists but no token yet — one tap completes it.
+      showButton('Continue', 'متابعة', tapSignIn);
+      return;
+    }
+    showButton('Sign in with Google', 'تسجيل الدخول بجوجل', tapSignIn);
+  }
+
+  main().catch((e) => fail('Bridge error: ' + String((e && e.message) || e)));
+</script>
+</body>
+</html>
